@@ -99,7 +99,7 @@ def ingest_document(filepath: str) -> str:
         raise ValueError(f"Unsupported file type: {ext}")
 
 
-def chunk_text(text: str, chunk_size=300, overlap=50) -> list:
+def chunk_text(text: str, chunk_size=80, overlap=15) -> list:
     words = text.split()
     chunks, start = [], 0
     while start < len(words):
@@ -177,16 +177,31 @@ def generate_answer(query, retrieved):
     stop = {"what","is","are","the","a","an","how","why","when","where",
             "who","does","do","in","of","to","?","i","me","my","tell","about"}
     keywords = set(query.lower().split()) - stop
+    if not keywords:
+        return retrieved[0]["chunk"][:500] + "..."
+
     best = []
     for item in retrieved:
         sentences = re.split(r'(?<=[.!?])\s+', item["chunk"])
         for sent in sentences:
             sl = sent.lower()
-            hits = sum(1 for kw in keywords if re.search(r'\\b' + re.escape(kw) + r'\\b', sl))
-            bonus = sum(2 for kw in keywords if re.search(r'\\b' + re.escape(kw) + r'\\b', sl[:60]))
-            total = hits + bonus
+            # Count exact keyword matches using word boundaries
+            hits = sum(1 for kw in keywords
+                       if re.search(r'\b' + re.escape(kw) + r'\b', sl))
+            if hits == 0:
+                continue
+            # Big bonus if keyword appears in first 50 chars (definition sentence)
+            bonus = sum(3 for kw in keywords
+                        if re.search(r'\b' + re.escape(kw) + r'\b', sl[:50]))
+            # Penalty: sentence contains "un" + keyword (e.g. unsupervised when asking supervised)
+            penalty = sum(2 for kw in keywords
+                          if re.search(r'\bun' + re.escape(kw) + r'\b', sl)
+                          and not re.search(r'\bun' + re.escape(kw) + r'\b',
+                                            query.lower()))
+            total = hits + bonus - penalty
             if total > 0:
                 best.append((total, sent.strip()))
+
     seen, unique = set(), []
     for score, sent in sorted(best, reverse=True):
         if sent not in seen:
@@ -297,7 +312,7 @@ def build_index(docs: dict):
     all_chunks, all_meta = [], []
 
     for fname, text in docs.items():
-        chunks = chunk_text(text)
+        chunks = chunk_text(text, chunk_size=80, overlap=15)
         log.append(f"✅ **{fname}** → {len(chunks)} chunks")
         for i, chunk in enumerate(chunks):
             all_chunks.append(chunk)
