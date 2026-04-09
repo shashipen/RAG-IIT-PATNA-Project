@@ -179,13 +179,20 @@ def generate_answer(query, retrieved):
     keywords = set(query.lower().split()) - stop
     best = []
     for item in retrieved:
-        for sent in re.split(r'(?<=[.!?])\s+', item["chunk"]):
+        sentences = re.split(r'(?<=[.!?])\s+', item["chunk"])
+        for sent in sentences:
             sl = sent.lower()
-            hits = sum(1 for kw in keywords if kw in sl)
-            if hits > 0:
-                best.append((hits, sent.strip()))
-    best.sort(reverse=True)
-    top = [s for _, s in best[:3]]
+            hits = sum(1 for kw in keywords if re.search(r'\\b' + re.escape(kw) + r'\\b', sl))
+            bonus = sum(2 for kw in keywords if re.search(r'\\b' + re.escape(kw) + r'\\b', sl[:60]))
+            total = hits + bonus
+            if total > 0:
+                best.append((total, sent.strip()))
+    seen, unique = set(), []
+    for score, sent in sorted(best, reverse=True):
+        if sent not in seen:
+            seen.add(sent)
+            unique.append((score, sent))
+    top = [s for _, s in unique[:3]]
     return " ".join(top) if top else retrieved[0]["chunk"][:500] + "..."
 
 
